@@ -52,11 +52,15 @@ class AppHandler(BaseHTTPRequestHandler):
 
 
     # send login form html
-    def auth_form(self, target = None):
+    def auth_form(self, target = None, cookie_domain = None):
 
         # try to get target location from header
         if target == None:
             target = self.headers.get('X-Target')
+
+        # try to get cookie domain from header
+        if cookie_domain == None:
+                cookie_domain = self.headers.get('X-Cookie-Domain')
 
         # form cannot be generated if target is unknown
         if target == None:
@@ -99,6 +103,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         <input type="text" name="token" placeholder="2FA Token" aria-label="2FA Token" />
                     </p> -->
                     <input type="hidden" name="target" value="TARGET">
+                    <input type="hidden" name="cookie_domain" value="COOKIE_DOMAIN">
                     <button type="submit" class="submit btn btn-primary">Log In</button>
                 </form>
             </div>
@@ -108,7 +113,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(ensure_bytes(html.replace('TARGET', target)))
+        self.wfile.write(ensure_bytes(html.replace('TARGET', target).replace('COOKIE_DOMAIN', cookie_domain)))
 
 
     # processes posted form and sets the cookie with login/password
@@ -135,9 +140,16 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_response(302)
 
             cipher_suite = Fernet(REPLACEWITHFERNETKEY)
+
             enc = cipher_suite.encrypt(ensure_bytes(user + ':' + passwd))
             enc = enc.decode()
-            self.send_header('Set-Cookie', 'nginxauth=' + enc + '; httponly')
+
+            cookie_domain = os.environ['COOKIE_DOMAIN']
+            cookie_domain_part = ''
+            if cookie_domain:
+                cookie_domain_part = 'domain=' + cookie_domain + ';'
+
+            self.send_header('Set-Cookie', 'nginxauth=' + enc + '; ' + cookie_domain_part + ' httponly')
 
             self.send_header('Location', target)
             self.end_headers()
