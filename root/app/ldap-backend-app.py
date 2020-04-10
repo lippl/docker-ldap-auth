@@ -59,8 +59,12 @@ class AppHandler(BaseHTTPRequestHandler):
 
         # try to get cookie domain from header
         cookie_domain = self.headers.get('X-Cookie-Domain')
-        if cookie_domain == None:
-            cookie_domain = ''
+
+        # try to get logout url from header
+        logout_url = self.headers.get('X-Url-Logout')
+
+        # try to get logo url from header
+        logo_url = self.headers.get('X-Url-Logo')
 
         # try to get login path from header
         path_login = self.headers.get('X-Path-Login')
@@ -74,31 +78,39 @@ class AppHandler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
 
         if url.path.startswith(path_login):
-            return self.auth_form(target, cookie_name, cookie_domain)
+            return self.auth_form(target, cookie_name, cookie_domain, logo_url, path_login)
         if url.path.startswith(path_logout):
-            return self.logout(target, cookie_name, cookie_domain)
+            return self.logout(target, cookie_name, cookie_domain, logo_url, logout_url)
 
         self.send_response(200)
         self.end_headers()
         self.wfile.write(ensure_bytes('Hello, world! Requested URL: ' + self.path + '\n'))
 
     # send logout message html and redirect to home.staiger.it
-    def logout(self, target, cookie_name, cookie_domain = '':
+    def logout(self, target, cookie_name, cookie_domain = None, logo_url = None, logout_url = None):
+
+        logo_part = ''
+        if logo_url and logo_url != '':
+            logo_part = '<img class="logo" src="' + logo_url + '">'
 
         cookie_domain_part = ''
-        if cookie_domain:
+        if cookie_domain and cookie_domain != '':
             cookie_domain_part = 'domain=' + cookie_domain + ';'
+
+        logout_redirect_part = ''
+        if logout_url:
+            logout_redirect_part = '<meta http-equiv="refresh" content="3;url=' + logout_url + '" />'
 
         html="""
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
     <head>
         <meta http-equiv=Content-Type content="text/html;charset=UTF-8">
-        <meta http-equiv="refresh" content="3;url=https://home.staiger.it/" />
+        {0}
         <title>Log Out</title>
         <style type="text/css" rel="stylesheet">
             body { background-color: #f1f1f1; font-family: sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
-            .log-in { width: 400px; height: 500px; position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: auto; background-color: #fff; border-radius: 3px; overflow: hidden; -webkit-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); -moz-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); }
+            .log-in { width: 400px; max-height: 550px; position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: auto; background-color: #fff; border-radius: 3px; overflow: hidden; -webkit-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); -moz-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); }
             .log-in > div { position: relative; }
             .log-in .content { margin-top: 50px; padding: 20px; text-align: center; }
 			.logo { text-align: center; max-height: 150px; }
@@ -109,7 +121,7 @@ class AppHandler(BaseHTTPRequestHandler):
     <body>
         <div class="log-in">
             <div class="content">
-				<img class="logo" src="https://staiger.it/wp-content/uploads/2016/01/cropped-Logo-270x270.png">
+				{1}
                 <h1>You are now logged out</h1>
             </div>
         </div>
@@ -118,13 +130,19 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         # Proxy Auth
         self.send_header('Set-Cookie', cookie_name + '=deleted; Max-Age=0; ' + cookie_domain_part + ' httponly')
-        self.send_header('Set-Cookie', 'nginxauth=deleted; Max-Age=0; httponly; Domain=staiger.it')
         self.end_headers()
-        self.wfile.write(ensure_bytes(html))
+        self.wfile.write(ensure_bytes(html.format(logout_redirect_part, logo_part)))
 
 
     # send login form html
-    def auth_form(self, target, cookie_name, cookie_domain = ''):
+    def auth_form(self, target, cookie_name, cookie_domain = None logo_url, path_login):
+
+        if cookie_domain == None:
+            cookie_domain = ''
+
+        logo_part = ''
+        if logo_url and logo_url != '':
+        logo_part = '<img class="logo" src="' + logo_url + '">'
 
         html="""
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
@@ -134,7 +152,7 @@ class AppHandler(BaseHTTPRequestHandler):
         <title>Log In</title>
         <style type="text/css" rel="stylesheet">
             body { background-color: #f1f1f1; font-family: sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
-            .log-in { width: 400px; height: 500px; position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: auto; background-color: #fff; border-radius: 3px; overflow: hidden; -webkit-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); -moz-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); }
+            .log-in { width: 400px; max-height: 550px; position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: auto; background-color: #fff; border-radius: 3px; overflow: hidden; -webkit-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); -moz-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); }
             .log-in > div { position: relative; }
             .log-in .content { margin-top: 50px; padding: 20px; text-align: center; }
             h1, h2 { text-align: center; }
@@ -149,8 +167,9 @@ class AppHandler(BaseHTTPRequestHandler):
     <body>
         <div class="log-in">
             <div class="content">
+                {4}
                 <h1>Log in to your account</h1>
-                <form action="/login" method="post">
+                <form action="{3}" method="post">
                     <p>
                         <input type="text" name="username" placeholder="Username" aria-label="Username" />
                     </p>
@@ -172,7 +191,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(ensure_bytes(html.format(target, cookie_name, cookie_domain)))
+        self.wfile.write(ensure_bytes(html.format(target, cookie_name, cookie_domain, path_login, logo_part)))
 
 
     # processes posted form and sets the cookie with login/password
