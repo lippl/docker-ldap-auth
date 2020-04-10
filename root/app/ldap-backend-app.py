@@ -59,6 +59,8 @@ class AppHandler(BaseHTTPRequestHandler):
 
         # try to get cookie domain from header
         cookie_domain = self.headers.get('X-Cookie-Domain')
+        if cookie_domain == None:
+            cookie_domain = ''
 
         # try to get login path from header
         path_login = self.headers.get('X-Path-Login')
@@ -81,7 +83,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self.wfile.write(ensure_bytes('Hello, world! Requested URL: ' + self.path + '\n'))
 
     # send logout message html and redirect to home.staiger.it
-    def logout(self, target, cookie_name, cookie_domain = None:
+    def logout(self, target, cookie_name, cookie_domain = '':
 
         cookie_domain_part = ''
         if cookie_domain:
@@ -122,7 +124,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
 
     # send login form html
-    def auth_form(self, target, cookie_name, cookie_domain = None):
+    def auth_form(self, target, cookie_name, cookie_domain = ''):
 
         html="""
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
@@ -158,9 +160,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     <!-- <p>
                         <input type="text" name="token" placeholder="2FA Token" aria-label="2FA Token" />
                     </p> -->
-                    <input type="hidden" name="target" value="TARGET">
-                    <input type="hidden" name="cookie_name" value="COOKIE_NAME">
-                    <input type="hidden" name="cookie_domain" value="COOKIE_DOMAIN">
+                    <input type="hidden" name="target" value="{0}">
+                    <input type="hidden" name="cookie_name" value="{1}">
+                    <input type="hidden" name="cookie_domain" value="{2}">
                     <button type="submit" class="submit btn btn-primary">Log In</button>
                 </form>
             </div>
@@ -170,7 +172,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(ensure_bytes(html.replace('TARGET', target).replace('COOKIE_NAME', cookie_name).replace('COOKIE_DOMAIN', cookie_domain)))
+        self.wfile.write(ensure_bytes(html.format(target, cookie_name, cookie_domain)))
 
 
     # processes posted form and sets the cookie with login/password
