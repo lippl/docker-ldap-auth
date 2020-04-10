@@ -176,7 +176,8 @@ class LDAPAuthHandler(AuthHandler):
              'template': ('X-Ldap-Template', '(cn=%(username)s)'),
              'binddn': ('X-Ldap-BindDN', ''),
              'bindpasswd': ('X-Ldap-BindPass', ''),
-             'cookiename': ('X-CookieName', '')
+             'cookiename': ('X-CookieName', ''),
+             'headername': ('X-Header-Name', '')
         }
 
     @classmethod
@@ -263,6 +264,8 @@ class LDAPAuthHandler(AuthHandler):
 
             # Successfully authenticated user
             self.send_response(200)
+            if ctx['headername'] != None
+                self.send_header(ctx['headername'], ctx['user'])
             self.end_headers()
 
         except Exception as e:
@@ -315,6 +318,8 @@ if __name__ == '__main__':
         default="Restricted", help='HTTP auth realm (Default: "Restricted")')
     group.add_argument('-c', '--cookie', metavar="cookiename",
         default="", help="HTTP cookie name to set in (Default: unset)")
+    group.add_argument('-H', '--headername', metavar="headername",
+        default="", help="HTTP header name to return username (Default: unset)")
 
     args = parser.parse_args()
     global Listen
@@ -327,7 +332,8 @@ if __name__ == '__main__':
              'template': ('X-Ldap-Template', args.filter),
              'binddn': ('X-Ldap-BindDN', args.binddn),
              'bindpasswd': ('X-Ldap-BindPass', args.bindpw),
-             'cookiename': ('X-CookieName', args.cookie)
+             'cookiename': ('X-CookieName', args.cookie),
+             'headername': ('X-Header-Name', args.cookie)
     }
     LDAPAuthHandler.set_params(auth_params)
     server = AuthHTTPServer(Listen, LDAPAuthHandler)
@@ -337,4 +343,3 @@ if __name__ == '__main__':
     sys.stdout.write("Start listening on %s:%d...\n" % Listen)
     sys.stdout.flush()
     server.serve_forever()
-
