@@ -66,7 +66,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         # try to get login path from header
         self.path_login = self.headers.get('X-Path-Login')
-        if self.path_login == None or not path_login.startswith("/"):
+        if self.path_login == None or not self.path_login.startswith("/"):
             self.path_login = "/login"
 
         # try to get logout path from header
