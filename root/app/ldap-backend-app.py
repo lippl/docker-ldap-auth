@@ -45,60 +45,60 @@ class AppHandler(BaseHTTPRequestHandler):
         #      self.log_message('Header '+key+' : '+self.headers.get(key))
 
         # try to get target location from header
-        target = self.headers.get('X-Target')
+        self.target = self.headers.get('X-Target')
 
         # try to get cookie name from header
-        cookie_name = self.headers.get('X-CookieName')
+        self.cookie_name = self.headers.get('X-CookieName')
         # cookie cannot be set if name is unknown
-        if cookie_name == None:
+        if self.cookie_name == None:
             self.log_error('cookie name is not passed')
             self.send_response(500)
             return
 
         # try to get cookie domain from header
-        cookie_domain = self.headers.get('X-Cookie-Domain')
+        self.cookie_domain = self.headers.get('X-Cookie-Domain')
 
         # try to get logout url from header
-        logout_url = self.headers.get('X-Url-Logout')
+        self.logout_url = self.headers.get('X-Url-Logout')
 
         # try to get logo url from header
-        logo_url = self.headers.get('X-Url-Logo')
+        self.logo_url = self.headers.get('X-Url-Logo')
 
         # try to get login path from header
-        path_login = self.headers.get('X-Path-Login')
-        if path_login == None or not path_login.startswith("/"):
-            path_login = "/login"
+        self.path_login = self.headers.get('X-Path-Login')
+        if self.path_login == None or not path_login.startswith("/"):
+            self.path_login = "/login"
 
         # try to get logout path from header
-        path_logout = self.headers.get('X-Path-Logout')
-        if path_logout == None or not path_logout.startswith("/"):
-            path_logout = "/logout"
+        self.path_logout = self.headers.get('X-Path-Logout')
+        if self.path_logout == None or not self.path_logout.startswith("/"):
+            self.path_logout = "/logout"
 
         url = urlparse(self.path)
 
-        if url.path.startswith(path_login):
-            return self.auth_form(target, cookie_name, cookie_domain, logo_url, path_login)
-        if url.path.startswith(path_logout):
-            return self.logout(target, cookie_name, cookie_domain, logo_url, logout_url)
+        if url.path.startswith(self.path_login):
+            return self.auth_form()
+        if url.path.startswith(self.path_logout):
+            return self.logout()
 
         self.send_response(200)
         self.end_headers()
         self.wfile.write(ensure_bytes('Hello, world! Requested URL: ' + self.path + '\n'))
 
     # send logout message html and redirect to home.staiger.it
-    def logout(self, target, cookie_name, cookie_domain = None, logo_url = None, logout_url = None):
+    def logout(self):
 
         logo_part = ''
-        if logo_url and logo_url != '':
-            logo_part = '<img class="logo" src="' + logo_url + '">'
+        if self.logo_url and self.logo_url != '':
+            logo_part = '<img class="logo" src="' + self.logo_url + '">'
 
         cookie_domain_part = ''
-        if cookie_domain and cookie_domain != '':
-            cookie_domain_part = 'domain=' + cookie_domain + ';'
+        if self.cookie_domain and self.cookie_domain != '':
+            cookie_domain_part = 'domain=' + self.cookie_domain + ';'
 
         logout_redirect_part = ''
-        if logout_url:
-            logout_redirect_part = '<meta http-equiv="refresh" content="3;url=' + logout_url + '" />'
+        if self.logout_url:
+            logout_redirect_part = '<meta http-equiv="refresh" content="3;url=' + self.logout_url + '" />'
 
         html="""
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
@@ -128,26 +128,26 @@ class AppHandler(BaseHTTPRequestHandler):
 </html>"""
         self.send_response(200)
         # Proxy Auth
-        self.send_header('Set-Cookie', cookie_name + '=deleted; Max-Age=0; ' + cookie_domain_part + ' httponly')
+        self.send_header('Set-Cookie', self.cookie_name + '=deleted; Max-Age=0; ' + cookie_domain_part + ' httponly')
         self.end_headers()
         self.wfile.write(ensure_bytes(html.format(redirect = logout_redirect_part, logo = logo_part)))
 
 
     # send login form html
-    def auth_form(self, target, cookie_name, cookie_domain = None, logo_url = None, path_login = '/login'):
+    def auth_form(self):
 
         # form cannot be generated if target is unknown
-        if target == None:
+        if self.target == None:
             self.log_error('target url is not passed')
             self.send_response(500)
             return
 
-        if cookie_domain == None:
-            cookie_domain = ''
+        if self.cookie_domain == None:
+            self.cookie_domain = ''
 
         logo_part = ''
-        if logo_url and logo_url != '':
-            logo_part = '<img class="logo" src="' + logo_url + '">'
+        if self.logo_url and self.logo_url != '':
+            logo_part = '<img class="logo" src="' + self.logo_url + '">'
 
         html="""
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
@@ -196,7 +196,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(ensure_bytes(html.format(target = target, cookie_name = cookie_name, cookie_domain = cookie_domain, action = path_login, logo = logo_part)))
+        self.wfile.write(ensure_bytes(html.format(target = self.target, cookie_name = self.cookie_name, cookie_domain = self.cookie_domain, action = self.path_login, logo = logo_part)))
 
 
     # processes posted form and sets the cookie with login/password
