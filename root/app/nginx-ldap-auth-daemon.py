@@ -74,12 +74,7 @@ class AuthHandler(BaseHTTPRequestHandler):
             self.log_message("using username/password from authorization header")
 
         if auth_header is None or not auth_header.lower().startswith('basic '):
-
-            self.send_response(401)
-            self.send_header('WWW-Authenticate', 'Basic realm="' + ctx['realm'] + '"')
-            self.send_header('Cache-Control', 'no-cache')
-            self.end_headers()
-
+            self.auth_failed(ctx, 'AuthZ empty or invalid format: %s' % auth_header)
             return True
 
         ctx['action'] = 'decoding credentials'
@@ -157,7 +152,7 @@ class AuthHandler(BaseHTTPRequestHandler):
         else:
             user = self.ctx['user']
 
-        sys.stdout.write("%s - %s [%s] %s\n" % (addr, user,
+        sys.stdout.write("%s - auth-daemon - %s [%s] %s\n" % (addr, user,
                          self.log_date_time_string(), format % args))
 
     def log_error(self, format, *args):
@@ -264,7 +259,7 @@ class LDAPAuthHandler(AuthHandler):
 
             # Successfully authenticated user
             self.send_response(200)
-            if ctx['headername'] != None
+            if ctx['headername'] != None and ctx['headername'] != '':
                 self.send_header(ctx['headername'], ctx['user'])
             self.end_headers()
 
@@ -333,13 +328,13 @@ if __name__ == '__main__':
              'binddn': ('X-Ldap-BindDN', args.binddn),
              'bindpasswd': ('X-Ldap-BindPass', args.bindpw),
              'cookiename': ('X-CookieName', args.cookie),
-             'headername': ('X-Header-Name', args.cookie)
+             'headername': ('X-Header-Name', args.headername)
     }
     LDAPAuthHandler.set_params(auth_params)
     server = AuthHTTPServer(Listen, LDAPAuthHandler)
     signal.signal(signal.SIGINT, exit_handler)
     signal.signal(signal.SIGTERM, exit_handler)
 
-    sys.stdout.write("Start listening on %s:%d...\n" % Listen)
+    sys.stdout.write("[auth-daemon] Start listening on %s:%d...\n" % Listen)
     sys.stdout.flush()
     server.serve_forever()

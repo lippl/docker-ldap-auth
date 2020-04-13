@@ -41,13 +41,11 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
 
+        # for key in self.headers.keys():
+        #      self.log_message('Header '+key+' : '+self.headers.get(key))
+
         # try to get target location from header
         target = self.headers.get('X-Target')
-        # form cannot be generated if target is unknown
-        if target == None:
-            self.log_error('target url is not passed')
-            self.send_response(500)
-            return
 
         # try to get cookie name from header
         cookie_name = self.headers.get('X-CookieName')
@@ -68,11 +66,12 @@ class AppHandler(BaseHTTPRequestHandler):
 
         # try to get login path from header
         path_login = self.headers.get('X-Path-Login')
-        if path_login == None or !path_login.startswith("/"):
+        if path_login == None or not path_login.startswith("/"):
             path_login = "/login"
+
         # try to get logout path from header
         path_logout = self.headers.get('X-Path-Logout')
-        if path_logout == None or !path_logout.startswith("/"):
+        if path_logout == None or not path_logout.startswith("/"):
             path_logout = "/logout"
 
         url = urlparse(self.path)
@@ -106,22 +105,22 @@ class AppHandler(BaseHTTPRequestHandler):
 <html>
     <head>
         <meta http-equiv=Content-Type content="text/html;charset=UTF-8">
-        {0}
+        {redirect}
         <title>Log Out</title>
         <style type="text/css" rel="stylesheet">
-            body { background-color: #f1f1f1; font-family: sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
-            .log-in { width: 400px; max-height: 550px; position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: auto; background-color: #fff; border-radius: 3px; overflow: hidden; -webkit-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); -moz-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); }
-            .log-in > div { position: relative; }
-            .log-in .content { margin-top: 50px; padding: 20px; text-align: center; }
-			.logo { text-align: center; max-height: 150px; }
-            h1, h2 { text-align: center; }
-            h1 {  margin-top: 20px; margin-bottom: 20px; letter-spacing: -0.05rem; color: #565656; font-size: 1.6rem; }
+            body {{ background-color: #f1f1f1; font-family: sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }}
+            .log-in {{ width: 400px; max-height: 550px; position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: auto; background-color: #fff; border-radius: 3px; overflow: hidden; -webkit-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); -moz-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); }}
+            .log-in > div {{ position: relative; }}
+            .log-in .content {{ margin-top: 50px; padding: 20px; text-align: center; }}
+			.logo {{ text-align: center; max-height: 150px; }}
+            h1, h2 {{ text-align: center; }}
+            h1 {{ margin-top: 20px; margin-bottom: 20px; letter-spacing: -0.05rem; color: #565656; font-size: 1.6rem; }}
         </style>
     </head>
     <body>
         <div class="log-in">
             <div class="content">
-				{1}
+				{logo}
                 <h1>You are now logged out</h1>
             </div>
         </div>
@@ -131,18 +130,24 @@ class AppHandler(BaseHTTPRequestHandler):
         # Proxy Auth
         self.send_header('Set-Cookie', cookie_name + '=deleted; Max-Age=0; ' + cookie_domain_part + ' httponly')
         self.end_headers()
-        self.wfile.write(ensure_bytes(html.format(logout_redirect_part, logo_part)))
+        self.wfile.write(ensure_bytes(html.format(redirect = logout_redirect_part, logo = logo_part)))
 
 
     # send login form html
-    def auth_form(self, target, cookie_name, cookie_domain = None logo_url, path_login):
+    def auth_form(self, target, cookie_name, cookie_domain = None, logo_url = None, path_login = '/login'):
+
+        # form cannot be generated if target is unknown
+        if target == None:
+            self.log_error('target url is not passed')
+            self.send_response(500)
+            return
 
         if cookie_domain == None:
             cookie_domain = ''
 
         logo_part = ''
         if logo_url and logo_url != '':
-        logo_part = '<img class="logo" src="' + logo_url + '">'
+            logo_part = '<img class="logo" src="' + logo_url + '">'
 
         html="""
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
@@ -151,25 +156,25 @@ class AppHandler(BaseHTTPRequestHandler):
         <meta http-equiv=Content-Type content="text/html;charset=UTF-8">
         <title>Log In</title>
         <style type="text/css" rel="stylesheet">
-            body { background-color: #f1f1f1; font-family: sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
-            .log-in { width: 400px; max-height: 550px; position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: auto; background-color: #fff; border-radius: 3px; overflow: hidden; -webkit-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); -moz-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); }
-            .log-in > div { position: relative; }
-            .log-in .content { margin-top: 50px; padding: 20px; text-align: center; }
-            h1, h2 { text-align: center; }
-            h1 {  margin-top: 20px; margin-bottom: 20px; letter-spacing: -0.05rem; color: #565656; font-size: 1.6rem; }
-            form { margin-top: 50px; }
-            input[type="text"], input[type="password"] { width: 80%; padding: 10px; border-top: 0; border-left: 0; border-right: 0; outline: none; }
-            input[type="text"]:focus, input[type="password"]:focus { border-bottom: 2px solid #666; }
-            button { width: 80%; padding: 10px; background-color: #3468e2; border: none; color: #fff; cursor: pointer; margin-top: 50px; }
-            button:hover { background-color: #5581e8; }
+            body {{ background-color: #f1f1f1; font-family: sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }}
+            .log-in {{ width: 400px; max-height: 550px; position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: auto; background-color: #fff; border-radius: 3px; overflow: hidden; -webkit-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); -moz-box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); box-shadow: 0px 0px 2px 0px rgba(222,222,222,1); }}
+            .log-in > div {{ position: relative; }}
+            .log-in .content {{ margin-top: 50px; padding: 20px; text-align: center; }}
+            h1, h2 {{ text-align: center; }}
+            h1 {{ margin-top: 20px; margin-bottom: 20px; letter-spacing: -0.05rem; color: #565656; font-size: 1.6rem; }}
+            form {{ margin-top: 50px; }}
+            input[type="text"], input[type="password"] {{ width: 80%; padding: 10px; border-top: 0; border-left: 0; border-right: 0; outline: none; }}
+            input[type="text"]:focus, input[type="password"]:focus {{ border-bottom: 2px solid #666; }}
+            button {{ width: 80%; padding: 10px; background-color: #3468e2; border: none; color: #fff; cursor: pointer; margin-top: 50px; }}
+            button:hover {{ background-color: #5581e8; }}
         </style>
     </head>
     <body>
         <div class="log-in">
             <div class="content">
-                {4}
+                {logo}
                 <h1>Log in to your account</h1>
-                <form action="{3}" method="post">
+                <form action="{action}" method="post">
                     <p>
                         <input type="text" name="username" placeholder="Username" aria-label="Username" />
                     </p>
@@ -179,9 +184,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     <!-- <p>
                         <input type="text" name="token" placeholder="2FA Token" aria-label="2FA Token" />
                     </p> -->
-                    <input type="hidden" name="target" value="{0}">
-                    <input type="hidden" name="cookie_name" value="{1}">
-                    <input type="hidden" name="cookie_domain" value="{2}">
+                    <input type="hidden" name="cookie_name" value="{cookie_name}">
+                    <input type="hidden" name="cookie_domain" value="{cookie_domain}">
+                    <input type="hidden" name="target" value="{target}">
                     <button type="submit" class="submit btn btn-primary">Log In</button>
                 </form>
             </div>
@@ -191,7 +196,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(ensure_bytes(html.format(target, cookie_name, cookie_domain, path_login, logo_part)))
+        self.wfile.write(ensure_bytes(html.format(target = target, cookie_name = cookie_name, cookie_domain = cookie_domain, action = path_login, logo = logo_part)))
 
 
     # processes posted form and sets the cookie with login/password
@@ -211,6 +216,15 @@ class AppHandler(BaseHTTPRequestHandler):
         target = form.getvalue('target')
         cookie_name = form.getvalue('cookie_name')
         cookie_domain = form.getvalue('cookie_domain')
+
+        # for item in form.list:
+        #     if item.name and item.value:
+        #         self.log_message('Field '+item.name+' : '+item.value)
+        #
+        # for key in self.headers.keys():
+        #      self.log_message('Header '+key+' : '+self.headers.get(key))
+        # for item in self.headers.items():
+        #     self.log_message('Header '+item[0]+' : '+item[1])
 
         if user != None and passwd != None and target != None:
 
@@ -236,7 +250,7 @@ class AppHandler(BaseHTTPRequestHandler):
             return
 
         self.log_error('some form fields are not provided')
-        self.auth_form(target)
+        self.do_GET()
 
 
     def log_message(self, format, *args):
@@ -245,7 +259,7 @@ class AppHandler(BaseHTTPRequestHandler):
         else:
             addr = "-"
 
-        sys.stdout.write("%s - - [%s] %s\n" % (addr,
+        sys.stdout.write("%s - auth-app - [%s] %s\n" % (addr,
                          self.log_date_time_string(), format % args))
 
     def log_error(self, format, *args):
@@ -258,4 +272,7 @@ def exit_handler(signal, frame):
 if __name__ == '__main__':
     server = AuthHTTPServer(Listen, AppHandler)
     signal.signal(signal.SIGINT, exit_handler)
+    signal.signal(signal.SIGTERM, exit_handler)
+    sys.stdout.write("[auth-app] Start listening on %s:%d...\n" % Listen)
+    sys.stdout.flush()
     server.serve_forever()
