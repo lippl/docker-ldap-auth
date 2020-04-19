@@ -11,6 +11,7 @@ from http.cookies import BaseCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 from cryptography.fernet import Fernet
+from cryptography.fernet import InvalidToken
 
 class AuthHandler(BaseHTTPRequestHandler):
 
@@ -42,6 +43,9 @@ class AuthHandler(BaseHTTPRequestHandler):
             auth_decoded = cipher_suite.decrypt(auth_decoded)
             auth_decoded = auth_decoded.decode("utf-8")
             user, mfa, passwd = auth_decoded.split(':', 2)
+        except InvalidToken:
+            self.auth_failed(ctx, 'Incorrect token.')
+            return True
         except Exception as e:
             self.auth_failed(ctx)
             self.log_error(e)
