@@ -4,48 +4,13 @@
 
 # Copyright (C) 2014-2015 Nginx, Inc.
 # Copyright (C) 2018 LinuxServer.io
+# Copyright (C) 2020 Philipp Staiger
 
-import sys, os, signal, base64, ldap, argparse
-if sys.version_info.major == 2:
-    from Cookie import BaseCookie
-    from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
-elif sys.version_info.major == 3:
-    from http.cookies import BaseCookie
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-
-if not hasattr(__builtins__, "basestring"): basestring = (str, bytes)
+import sys, signal, ldap, argparse
+from http.cookies import BaseCookie
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 from cryptography.fernet import Fernet
-from cryptography.fernet import InvalidToken
-
-#Listen = ('localhost', 8888)
-#Listen = "/tmp/auth.sock"    # Also uncomment lines in 'Requests are
-                              # processed with UNIX sockets' section below
-
-# -----------------------------------------------------------------------------
-# Different request processing models: select one
-# -----------------------------------------------------------------------------
-# Requests are processed in separate thread
-import threading
-if sys.version_info.major == 2:
-    from SocketServer import ThreadingMixIn
-elif sys.version_info.major == 3:
-    from socketserver import ThreadingMixIn
-
-class AuthHTTPServer(ThreadingMixIn, HTTPServer):
-    pass
-# -----------------------------------------------------------------------------
-# Requests are processed in separate process
-#from SocketServer import ForkingMixIn
-#class AuthHTTPServer(ForkingMixIn, HTTPServer):
-#    pass
-# -----------------------------------------------------------------------------
-# Requests are processed with UNIX sockets
-#import threading
-#from SocketServer import ThreadingUnixStreamServer
-#class AuthHTTPServer(ThreadingUnixStreamServer, HTTPServer):
-#    pass
-# -----------------------------------------------------------------------------
 
 class AuthHandler(BaseHTTPRequestHandler):
 
@@ -63,41 +28,34 @@ class AuthHandler(BaseHTTPRequestHandler):
                 return True
 
         ctx['action'] = 'performing authorization'
-        auth_header = self.headers.get('Authorization')
         auth_cookie = self.get_cookie(ctx['cookiename'])
 
-        if auth_cookie != None and auth_cookie != '':
-            auth_header = "Basic " + auth_cookie
-            self.log_message("using username/password from cookie %s" %
-                             ctx['cookiename'])
-        else:
-            self.log_message("using username/password from authorization header")
-
-        if auth_header is None or not auth_header.lower().startswith('basic '):
-            self.auth_failed(ctx, 'AuthZ empty or invalid format: %s' % auth_header)
+        if auth_cookie is None:
+            self.auth_failed(ctx, 'AuthZ empty or invalid format: %s' % auth_cookie)
             return True
 
         ctx['action'] = 'decoding credentials'
 
         try:
             cipher_suite = Fernet(REPLACEWITHFERNETKEY)
-            self.log_message('Trying to dechipher credentials...')
-            auth_decoded = auth_header[6:].encode()
+            auth_decoded = auth_cookie.encode("utf-8")
             auth_decoded = cipher_suite.decrypt(auth_decoded)
             auth_decoded = auth_decoded.decode("utf-8")
-            user, passwd = auth_decoded.split(':', 1)
-        except InvalidToken:
-            self.log_message('Incorrect token. Trying to decode credentials from BASE64...')
-            auth_decoded = base64.b64decode(auth_header[6:])
-            auth_decoded = auth_decoded.decode("utf-8")
-            user, passwd = auth_decoded.split(':', 1)
+            user, mfa, passwd = auth_decoded.split(':', 2)
         except Exception as e:
             self.auth_failed(ctx)
             self.log_error(e)
             return True
 
+        self.log_message('MFA cookie: %s header: %s' % (mfa, ctx["mfa"]))
+
         ctx['user'] = user
         ctx['pass'] = passwd
+
+        if ctx['mfa'] and ctx['mfa'] != mfa:
+            self.auth_failed(ctx)
+            return True
+
 
         # Continue request processing
         return False
@@ -171,8 +129,9 @@ class LDAPAuthHandler(AuthHandler):
              'template': ('X-Ldap-Template', '(cn=%(username)s)'),
              'binddn': ('X-Ldap-BindDN', ''),
              'bindpasswd': ('X-Ldap-BindPass', ''),
-             'cookiename': ('X-CookieName', ''),
-             'headername': ('X-Header-Name', '')
+             'cookiename': ('X-CookieName', None),
+             'headername': ('X-Header-Name', ''),
+             'mfa': ('X-MFA', '')
         }
 
     @classmethod
@@ -184,6 +143,7 @@ class LDAPAuthHandler(AuthHandler):
 
     # GET handler for the authentication request
     def do_GET(self):
+        self.log_message('Auth processing started')
 
         ctx = dict()
         self.ctx = ctx
@@ -269,16 +229,6 @@ class LDAPAuthHandler(AuthHandler):
             raise
 
 def exit_handler(signal, frame):
-    global Listen
-
-    if isinstance(Listen, basestring):
-        try:
-            os.unlink(Listen)
-        except:
-            ex, value, trace = sys.exc_info()
-            sys.stderr.write('Failed to remove socket "%s": %s\n' %
-                             (Listen, str(value)))
-            sys.stderr.flush()
     sys.exit(0)
 
 if __name__ == '__main__':
@@ -315,6 +265,8 @@ if __name__ == '__main__':
         default="", help="HTTP cookie name to set in (Default: unset)")
     group.add_argument('-H', '--headername', metavar="headername",
         default="", help="HTTP header name to return username (Default: unset)")
+    group.add_argument('-M', '--mfa', metavar="mfa",
+        default="", help="MFA header name to return mfa method (Default: unset)")
 
     args = parser.parse_args()
     global Listen
@@ -328,10 +280,11 @@ if __name__ == '__main__':
              'binddn': ('X-Ldap-BindDN', args.binddn),
              'bindpasswd': ('X-Ldap-BindPass', args.bindpw),
              'cookiename': ('X-CookieName', args.cookie),
-             'headername': ('X-Header-Name', args.headername)
+             'headername': ('X-Header-Name', args.headername),
+             'mfa': ('X-MFA', args.mfa)
     }
     LDAPAuthHandler.set_params(auth_params)
-    server = AuthHTTPServer(Listen, LDAPAuthHandler)
+    server = ThreadingHTTPServer(Listen, LDAPAuthHandler)
     signal.signal(signal.SIGINT, exit_handler)
     signal.signal(signal.SIGTERM, exit_handler)
 

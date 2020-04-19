@@ -28,7 +28,8 @@ RUN \
         pip && \
  pip install -U \
         cryptography \
-        ${LDAP_INSTALL} && \
+        ${LDAP_INSTALL} \
+        duo-web && \
  echo "**** cleanup ****" && \
  apk del --purge \
         build-dependencies && \

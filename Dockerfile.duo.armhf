@@ -1,0 +1,13 @@
+FROM linuxserver/ldap-auth:latest
+
+RUN \
+ echo "**** install build packages ****" && \
+ pip3 install -U --no-cache-dir \
+        duo-web && \
+ echo "**** cleanup ****" && \
+ rm -rf \
+        /tmp/* \
+        /root/.cache/pip
+
+# copy local files
+COPY root/ /

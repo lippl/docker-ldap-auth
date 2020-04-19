@@ -7,3 +7,21 @@ if grep -q 'REPLACEWITHFERNETKEY' /app/ldap-backend-app.py; then
     sed -i "s/REPLACEWITHFERNETKEY/${FERNETKEY}/" /app/nginx-ldap-auth-daemon.py
     echo "generated fernet key"
 fi
+
+# Set Duo Parameters
+if [ -n "$DUO_IKEY" ]  && grep -q 'REPLACEWITHDUOIKEY' /app/ldap-backend-app.py; then
+    sed -i "s/REPLACEWITHDUOIKEY/${DUO_IKEY}/" /app/ldap-backend-app.py
+    echo "Duo ikey set"
+fi
+if [ -n "$DUO_SKEY" ]  && grep -q 'REPLACEWITHDUOSKEY' /app/ldap-backend-app.py; then
+    sed -i "s/REPLACEWITHDUOSKEY/${DUO_SKEY}/" /app/ldap-backend-app.py
+    echo "Duo skey set"
+fi
+if [ -n "$DUO_AKEY" ]  && grep -q 'REPLACEWITHDUOAKEY' /app/ldap-backend-app.py; then
+    sed -i "s/REPLACEWITHDUOAKEY/${DUO_AKEY}/" /app/ldap-backend-app.py
+    echo "Duo akey set"
+fi
+if [ -n "$DUO_HOST" ]  && grep -q 'REPLACEWITHDUOHOST' /app/ldap-backend-app.py; then
+    sed -i "s/REPLACEWITHDUOHOST/${DUO_HOST}/" /app/ldap-backend-app.py
+    echo "Duo host set"
+fi
