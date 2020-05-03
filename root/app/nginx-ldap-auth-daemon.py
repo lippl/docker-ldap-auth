@@ -10,8 +10,7 @@ import sys, signal, ldap, argparse
 from http.cookies import BaseCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
-from cryptography.fernet import Fernet
-from cryptography.fernet import InvalidToken
+from cryptography.fernet import Fernet, InvalidToken
 
 class AuthHandler(BaseHTTPRequestHandler):
 
@@ -51,13 +50,11 @@ class AuthHandler(BaseHTTPRequestHandler):
             self.log_error(e)
             return True
 
-        self.log_message('MFA cookie: %s header: %s' % (mfa, ctx["mfa"]))
-
         ctx['user'] = user
         ctx['pass'] = passwd
 
         if ctx['mfa'] and ctx['mfa'] != mfa:
-            self.auth_failed(ctx)
+            self.auth_failed(ctx, 'MFA method does not match!')
             return True
 
 
@@ -96,7 +93,6 @@ class AuthHandler(BaseHTTPRequestHandler):
 
         self.log_error(msg)
         self.send_response(401)
-        self.send_header('WWW-Authenticate', 'Basic realm="' + ctx['realm'] + '"')
         self.send_header('Cache-Control', 'no-cache')
         self.end_headers()
 
@@ -114,8 +110,9 @@ class AuthHandler(BaseHTTPRequestHandler):
         else:
             user = self.ctx['user']
 
-        sys.stdout.write("%s - auth-daemon - %s [%s] %s\n" % (addr, user,
+        sys.stdout.write("%s [auth-daemon] %s [%s] %s\n" % (addr, user,
                          self.log_date_time_string(), format % args))
+        sys.stdout.flush()
 
     def log_error(self, format, *args):
         self.log_message(format, *args)
@@ -126,14 +123,13 @@ class LDAPAuthHandler(AuthHandler):
     # Parameters to put into self.ctx from the HTTP header of auth request
     params =  {
              # parameter      header         default
-             'realm': ('X-Ldap-Realm', 'Restricted'),
              'url': ('X-Ldap-URL', None),
              'starttls': ('X-Ldap-Starttls', 'false'),
              'basedn': ('X-Ldap-BaseDN', None),
              'template': ('X-Ldap-Template', '(cn=%(username)s)'),
              'binddn': ('X-Ldap-BindDN', ''),
              'bindpasswd': ('X-Ldap-BindPass', ''),
-             'cookiename': ('X-CookieName', None),
+             'cookiename': ('X-Cookie-Name', 'nginxauth'),
              'headername': ('X-Header-Name', ''),
              'mfa': ('X-MFA', '')
         }
@@ -147,7 +143,6 @@ class LDAPAuthHandler(AuthHandler):
 
     # GET handler for the authentication request
     def do_GET(self):
-        self.log_message('Auth processing started')
 
         ctx = dict()
         self.ctx = ctx
@@ -263,10 +258,8 @@ if __name__ == '__main__':
         help="LDAP filter (Default: cn=%%(username)s)")
     # http options:
     group = parser.add_argument_group(title="HTTP options")
-    group.add_argument('-R', '--realm', metavar='"Restricted Area"',
-        default="Restricted", help='HTTP auth realm (Default: "Restricted")')
     group.add_argument('-c', '--cookie', metavar="cookiename",
-        default="", help="HTTP cookie name to set in (Default: unset)")
+        default="nginxauth", help="HTTP cookie name to set in (Default: nginxauth)")
     group.add_argument('-H', '--headername', metavar="headername",
         default="", help="HTTP header name to return username (Default: unset)")
     group.add_argument('-M', '--mfa', metavar="mfa",
@@ -276,14 +269,13 @@ if __name__ == '__main__':
     global Listen
     Listen = (args.host, args.port)
     auth_params = {
-             'realm': ('X-Ldap-Realm', args.realm),
              'url': ('X-Ldap-URL', args.url),
              'starttls': ('X-Ldap-Starttls', args.starttls),
              'basedn': ('X-Ldap-BaseDN', args.basedn),
              'template': ('X-Ldap-Template', args.filter),
              'binddn': ('X-Ldap-BindDN', args.binddn),
              'bindpasswd': ('X-Ldap-BindPass', args.bindpw),
-             'cookiename': ('X-CookieName', args.cookie),
+             'cookiename': ('X-Cookie-Name', args.cookie),
              'headername': ('X-Header-Name', args.headername),
              'mfa': ('X-MFA', args.mfa)
     }

@@ -1,97 +1,112 @@
 #!/bin/sh
-''''which python  >/dev/null && exec python  "$0" "$@" # '''
+''''[ -z $LOG ] && export LOG=/dev/stdout # '''
+''''which python  >/dev/null && exec python  -u "$0" "$@" >> $LOG 2>&1 # '''
 
 # Copyright (C) 2014-2015 Nginx, Inc.
 # Copyright (C) 2018 LinuxServer.io
 # Copyright (C) 2020 Philipp Staiger
 
-import sys, os, signal, cgi
+import sys, signal, cgi, ldap, argparse
 
 import duo_web
-
-from urllib.parse import urlparse
 from http.cookies import BaseCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
-Listen = ('0.0.0.0', 9000)
-ikey = "REPLACEWITHDUOIKEY"
-skey = "REPLACEWITHDUOSKEY"
-akey = "REPLACEWITHDUOAKEY"
-host = "REPLACEWITHDUOHOST"
+cipher_suite = Fernet(REPLACEWITHFERNETKEY)
 
-class AppHandler(BaseHTTPRequestHandler):
+# Implement Login Frontend
+class AppAuthHandler(BaseHTTPRequestHandler):
+    
+    # Parameters to put into self.ctx from the HTTP header of auth request
+    params =  {
+             # parameter      header         default
+             'url': ('X-Ldap-URL', None),
+             'starttls': ('X-Ldap-Starttls', 'false'),
+             'basedn': ('X-Ldap-BaseDN', None),
+             'template': ('X-Ldap-Template', '(cn=%(username)s)'),
+             'binddn': ('X-Ldap-BindDN', ''),
+             'bindpasswd': ('X-Ldap-BindPass', ''),
+             'cookiename': ('X-Cookie-Name', None),
+             'cookiedomain': ('X-Cookie-Domain', ''),
+             'headername': ('X-Header-Name', ''),
+             'mfa': ('X-MFA', ''),
+             'target': ('X-Target', None),
+             'basepath': ('X-Path', ''),
+             'loginpath': ('X-Path-Login', '/login'),
+             'logoutpath': ('X-Path-Logout', '/logout'),
+             'logourl': ('X-Url-Logo', ''),
+             'redirecturl': ('X-Url-Redirect', ''),
+             'duoikey': ('X-Duo-ikey', ''),
+             'duoskey': ('X-Duo-skey', ''),
+             'duoakey': ('X-Duo-akey', ''),
+             'duohost': ('X-Duo-host', ''),
+        }
 
+    @classmethod
+    def set_params(cls, params):
+        cls.params.update(params)
+
+    def get_params(self):
+        return self.params
+
+    def init_ctx(self):
+        
+        ctx = dict()
+        self.ctx = ctx
+
+        ctx['action'] = 'initializing auth handler'
+        ctx['user'] = '-'
+
+        ctx['action'] = 'input parameters check'
+        for k, v in self.params.items():
+            ctx[k] = self.headers.get(v[0], v[1])
+            if ctx[k] is None:
+                self.log_error('required "%s" header was not passed' % k)
+                self.auth_form('required "%s" header was not passed' % k, target = '/')
+        
+        ctx['path'] = urlparse(self.path).path
+
+
+    # GET handler for the authentication request
     def do_GET(self):
 
-        self.get_headers()
+        self.init_ctx()
+        ctx = self.ctx
 
-        url = urlparse(self.path)
+        ctx['action'] = 'selecting action'
 
-        if url.path.startswith(self.path_login):
-            # form cannot be generated if target is unknown
-            if not self.target:
-                self.log_error('target url is not passed')
-                self.send_response(500)
-                return
-            return self.auth_form(self.target)
-        if url.path.startswith(self.path_logout):
+        if ctx['path'].startswith(ctx['basepath']+ctx['loginpath']):
+            return self.auth_form()
+        elif ctx['path'].startswith(ctx['basepath']+ctx['logoutpath']):
             return self.logout()
+        else:
+            self.log_error("Invalid Path: %s" % ctx['path'])
+            return self.auth_form("An error occurred - Please check with your administrator!")
 
-        self.send_response(200)
-        self.end_headers()
-        self.write_response('Hello, world! Requested URL: ' + self.path + '\n')
-
-    def get_headers(self):
-
-        # try to get target location from header
-        self.target = self.headers.get('X-Target')
-
-        # try to get cookie name from header
-        self.cookie_name = self.headers.get('X-CookieName')
-        # cookie cannot be set if name is unknown
-        if self.cookie_name == None:
-            self.log_error('cookie name is not passed')
-            self.send_response(500)
-            return
-
-        # try to get cookie domain from header
-        self.cookie_domain = self.headers.get('X-Cookie-Domain')
-
-        # try to get logout url from header
-        self.logout_url = self.headers.get('X-Url-Logout')
-
-        # try to get logo url from header
-        self.logo_url = self.headers.get('X-Url-Logo')
-
-        # try to get login path from header
-        self.path_login = self.headers.get('X-Path-Login')
-        if not self.path_login or not self.path_login.startswith("/"):
-            self.path_login = "/login"
-
-        # try to get logout path from header
-        self.path_logout = self.headers.get('X-Path-Logout')
-        if not self.path_logout or not self.path_logout.startswith("/"):
-            self.path_logout = "/logout"
-
-        # try to get mfa method from header
-        self.mfa = self.headers.get('X-MFA')
-    
-    # send logout message html and redirect to home.staiger.it
+    # send logout message html and redirect to specified logout url
     def logout(self):
+        
+        ctx = self.ctx
 
         logo_part = ''
-        if self.logo_url and self.logo_url != '':
-            logo_part = '<img class="logo" src="' + self.logo_url + '">'
+        if ctx['logourl']:
+            logo_part = '<img class="logo" src="' + ctx['logourl'] + '">'
 
         cookie_domain_part = ''
-        if self.cookie_domain and self.cookie_domain != '':
-            cookie_domain_part = 'domain=' + self.cookie_domain + ';'
+        if ctx['cookiedomain']:
+            cookie_domain_part = 'domain=' + ctx['cookiedomain'] + ';'
 
         logout_redirect_part = ''
-        if self.logout_url:
-            logout_redirect_part = '<meta http-equiv="refresh" content="3;url=' + self.logout_url + '" />'
+        if ctx['redirecturl']:
+            logout_redirect_part = '<meta http-equiv="refresh" content="3;url=' + ctx['redirecturl'] + '" />'
+
+        if self.get_id(self.get_cookie(ctx['cookiename'])):
+            user_part = "You are now logged out"
+        else:
+            user_part = "Hey " + ctx['user'] + ", you are now logged out"
 
         html="""
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
@@ -114,27 +129,29 @@ class AppHandler(BaseHTTPRequestHandler):
         <div class="log-in">
             <div class="content">
 				{logo}
-                <h1>You are now logged out</h1>
+                <h1>{message}</h1>
             </div>
         </div>
     </body>
 </html>"""
         self.send_response(200)
         # Proxy Auth
-        self.send_header('Set-Cookie', self.cookie_name + '=deleted; Max-Age=0; ' + cookie_domain_part + ' httponly')
+        self.send_header('Set-Cookie', ctx['cookiename'] + '=deleted; Max-Age=0; ' + cookie_domain_part + ' Path=/; HttpOnly')
         self.end_headers()
-        self.write_response(html.format(redirect = logout_redirect_part, logo = logo_part))
+        self.write_response(html.format(redirect = logout_redirect_part, logo = logo_part, message = user_part))
 
 
     # send login form html
-    def auth_form(self, target, message = None):
+    def auth_form(self, message = None, target = None):
+        
+        ctx = self.ctx
 
-        if self.cookie_domain:
-            self.cookie_domain = ''
+        if target:
+            ctx['target'] = target
 
         logo_part = ''
-        if self.logo_url:
-            logo_part = '<img class="logo" src="' + self.logo_url + '">'
+        if ctx['logourl']:
+            logo_part = '<img class="logo" src="' + ctx['logourl'] + '">'
 
         msg_part = ''
         if message:
@@ -185,17 +202,19 @@ class AppHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.end_headers()
-        self.write_response(html.format(action = self.path_login, logo = logo_part, target = target, message = msg_part))
+        self.write_response(html.format(action = ctx['basepath']+ctx['loginpath'], logo = logo_part, target = ctx['target'], message = msg_part))
 
 
     # send login form html
-    def duo_form(self, username, target, cookie):
+    def duo_form(self, cookie):
+        
+        ctx = self.ctx
 
         logo_part = ''
-        if self.logo_url and self.logo_url != '':
-            logo_part = '<img class="logo" src="' + self.logo_url + '">'
+        if ctx['logourl']:
+            logo_part = '<img class="logo" src="' + ctx['logourl'] + '">'
 
-        sig_request = duo_web.sign_request(ikey, skey, akey, username)
+        sig_request = duo_web.sign_request(ctx['duoikey'], ctx['duoskey'], ctx['duoakey'], ctx['user'])
 
         html="""
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
@@ -241,13 +260,14 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Set-Cookie', cookie)
         self.end_headers()
-        self.write_response(html.format(host = host, sig_request = sig_request, logo = logo_part, target = target))
+        self.write_response(html.format(host = ctx['duohost'], sig_request = sig_request, logo = logo_part, target = ctx['target']))
 
 
     # processes posted form and sets the cookie with login/password
     def do_POST(self):
 
-        self.get_headers()
+        self.init_ctx()
+        ctx = self.ctx
 
         # prepare arguments for cgi module to read posted form
         env = {'REQUEST_METHOD':'POST',
@@ -256,67 +276,71 @@ class AppHandler(BaseHTTPRequestHandler):
         # read the form contents
         form = cgi.FieldStorage(fp = self.rfile, headers = self.headers,
                                 environ = env)
-
-        # extract required fields
-        user = form.getvalue('username')
-        passwd = form.getvalue('password')
-        target = form.getvalue('target')
-
-        cipher_suite = Fernet(REPLACEWITHFERNETKEY)
-        message = None
+        ctx['target'] = form.getvalue('target')
+        ctx['user'] = form.getvalue('username')
+        ctx['pass'] = form.getvalue('password')
+        
+        if not ctx['path'].startswith(ctx['basepath']+ctx['loginpath']):
+            log_error("Invalid Path: %s" % ctx['path'])
+            return self.auth_form("An error occurred - Please check with your administrator!")
 
         # DUO auth
-        if (sig_response := form.getvalue('sig_response')) and self.mfa == "duo":
+        if (sig_response := form.getvalue('sig_response')) and ctx['mfa'] == "duo":
             
-            username = duo_web.verify_response(ikey, skey, akey, sig_response)
+            username = duo_web.verify_response(ctx['duoikey'], ctx['duoskey'], ctx['duoakey'], sig_response)
 
             if username is None:
                 # See if it was a response to an ENROLL_REQUEST
                 username = duo_web.verify_enroll_response(
-                    ikey, skey, akey, sig_response)
-                if user is None:
-                    message = 'Duo authentication failed'
-                else:
-                    message = ('Enrolled with Duo as %s.' % user)
-            else:
-            
-                if auth_cookie := self.get_cookie(self.cookie_name):
+                    ctx['duoikey'], ctx['duoskey'], ctx['duoakey'], sig_response)
 
-                    user, mfa, passwd = self.decode_cookie(cipher_suite, auth_cookie)
-                   
-                    if username != user:
-                        message = ("Users don't match! MFA:%s - Form: %s" % username, user)
-                    if mfa: #
-                        message = ("MFA already set - Should be empty! Cookie:%s - App: %s" % mfa, self.mfa)
+                if username is None:
+                    return self.auth_form('Duo authentication failed')
                 else:
-                    message = ("Primary auth was not completed before MFA!")
+                    return self.auth_form('Enrolled with Duo as %s.' % username)
+
+            else:
+                if error := self.get_id(self.get_cookie(ctx['cookiename'])):
+                    self.log_error(error)
+                    return self.auth_form('An error occurred - please try again!')
+
+                if username != ctx['user']:
+                    return self.auth_form("Users don't match! MFA:%s - Form: %s" % (username, ctx['user']))
 
         # Auth
-        if user and passwd and target and not message: # and (not self.mfa or sig_response)
 
-            # do LDAP Auth here later
+        if ctx['user'] and ctx['pass'] and ctx['target']:
 
-            if self.mfa == "duo" and not sig_response: # Duo mfa required
-                cookie = self.set_cookie(cipher_suite, user, passwd, None)
-                return self.duo_form(user, target, cookie)
+            try:
+                if error := self.ldap_auth():
+                    self.log_error(error)
+                    return self.auth_form('Authentication failed')
+            except Exception as e:
+                self.log_error(str(e))
+                return self.auth_form('Authentication failed')
 
-            if not self.mfa or self.mfa == "duo": # Auth successfull without mfa or with duo
-                cookie = self.set_cookie(cipher_suite, user, passwd, self.mfa)
+            if ctx['mfa'] == "duo" and not sig_response: # Duo mfa required
+                cookie = self.set_cookie(ctx['user'], ctx['pass'], None)
+                return self.duo_form(cookie)
+
+            if not ctx['mfa'] or ctx['mfa'] == "duo": # Auth successfull without mfa or with duo
+                cookie = self.set_cookie(ctx['user'], ctx['pass'], ctx['mfa'])
                 self.send_response(302)
-                self.send_header('Location', target)
+                self.send_header('Location', ctx['target'])
                 self.send_header('Set-Cookie', cookie)
                 self.end_headers()
                 return
-            
-        message = 'Authentication failed'
-        
-        return self.auth_form(target, message)
+
+        return self.auth_form('Authentication failed')
+
 
     # Encodes response and writes it out to response
     def write_response(self, response):
         self.wfile.write(response.encode("utf-8"))
 
-    def set_cookie(self, cipher_suite, user, password, mfa = None):
+    def set_cookie(self, user, password, mfa = None):
+
+        ctx = self.ctx
 
         if not mfa:
             mfa = ''
@@ -326,26 +350,111 @@ class AppHandler(BaseHTTPRequestHandler):
         enc = enc.decode()
 
         cookie_domain_part = ''
-        if self.cookie_domain:
-            cookie_domain_part = 'domain=' + self.cookie_domain + ';'
+        if ctx['cookiedomain']:
+            cookie_domain_part = 'Domain=' + ctx['cookiedomain'] + ';'
 
-        return self.cookie_name + '=' + enc + '; ' + cookie_domain_part + ' httponly'
+        return ctx['cookiename'] + '=' + enc + '; ' + cookie_domain_part + ' Path=/; HttpOnly' # ; Secure # Max-Age:XXXs
+
+    def ldap_auth(self):
+
+        ctx = self.ctx
+
+        # check that uri and baseDn are set
+        # either from cli or a request
+        if not ctx['url']:
+            return 'LDAP URL is not set!'
+        if not ctx['basedn']:
+            return 'LDAP baseDN is not set!'
+
+        ctx['action'] = 'initializing LDAP connection'
+        ldap_obj = ldap.initialize(ctx['url'])
+
+        # Python-ldap module documentation advises to always
+        # explicitely set the LDAP version to use after running
+        # initialize() and recommends using LDAPv3. (LDAPv2 is
+        # deprecated since 2003 as per RFC3494)
+        #
+        # Also, the STARTTLS extension requires the
+        # use of LDAPv3 (RFC2830).
+        ldap_obj.protocol_version=ldap.VERSION3
+
+        # Establish a STARTTLS connection if required by the
+        # headers.
+        if ctx['starttls'] == 'true':
+            ldap_obj.start_tls_s()
+
+        # See http://www.python-ldap.org/faq.shtml
+        # uncomment, if required
+        # ldap_obj.set_option(ldap.OPT_REFERRALS, 0)
+
+        ctx['action'] = 'binding as search user'
+        ldap_obj.bind_s(ctx['binddn'], ctx['bindpasswd'], ldap.AUTH_SIMPLE)
+
+        ctx['action'] = 'preparing search filter'
+        searchfilter = ctx['template'] % { 'username': ctx['user'] }
+
+        self.log_message(('searching on server "%s" with base dn ' + \
+                            '"%s" with filter "%s"') %
+                            (ctx['url'], ctx['basedn'], searchfilter))
+
+        ctx['action'] = 'running search query'
+        results = ldap_obj.search_s(ctx['basedn'], ldap.SCOPE_SUBTREE,
+                                        searchfilter, ['objectclass'], 1)
+
+        ctx['action'] = 'verifying search query results'
+        if len(results) < 1:
+            return 'no objects found'
+
+        ctx['action'] = 'binding as an existing user'
+        ldap_dn = results[0][0]
+        ctx['action'] += ' "%s"' % ldap_dn
+        ldap_obj.bind_s(ldap_dn, ctx['pass'], ldap.AUTH_SIMPLE)
+
+        self.log_message('Auth OK for user "%s"' % (ctx['user']))
+
+    # Return Error Message if failed, otherwise False
+    # Set ctx['user'] and ctx['pass'] for authentication
+    def get_id(self, auth_cookie):
+        
+        ctx = self.ctx
+
+        ctx['action'] = 'performing authorization'
+
+        if auth_cookie is None:
+            return 'Primary auth was not completed before MFA!'
+
+        ctx['action'] = 'decoding credentials'
+
+        try:
+            auth_decoded = auth_cookie.encode("utf-8")
+            auth_decoded = cipher_suite.decrypt(auth_decoded)
+            auth_decoded = auth_decoded.decode("utf-8")
+            user, mfa, passwd = auth_decoded.split(':', 2)
+        except InvalidToken:
+            return 'Incorrect token.'
+        except Exception:
+            return 'Exception decoding'
+
+        ctx['user'] = user
+        ctx['pass'] = passwd
+
+        # Continue request processing
+        return
     
     def get_cookie(self, name):
         cookies = self.headers.get('Cookie')
+        
         if cookies:
-            if (authcookie := BaseCookie(cookies).get(name)):
+            authcookie = BaseCookie(cookies).get(name)
+            if authcookie:
                 return authcookie.value
             else:
                 return None
         else:
             return None
 
-    def decode_cookie(self, cipher_suite, cookie):
-        auth_decoded = cookie.encode("utf-8")
-        auth_decoded = cipher_suite.decrypt(auth_decoded)
-        auth_decoded = auth_decoded.decode("utf-8")
-        return auth_decoded.split(':', 2)
+    def get_params(self):
+        return {}
 
     def log_message(self, format, *args):
         if len(self.client_address) > 0:
@@ -353,20 +462,122 @@ class AppHandler(BaseHTTPRequestHandler):
         else:
             addr = "-"
 
-        sys.stdout.write("%s - auth-app - [%s] %s\n" % (addr,
+        if not hasattr(self, 'ctx'):
+            user = '-'
+        else:
+            user = self.ctx['user']
+
+        sys.stdout.write("%s [auth-app] %s [%s] %s\n" % (addr, user,
                          self.log_date_time_string(), format % args))
+        sys.stdout.flush()
 
     def log_error(self, format, *args):
-        self.log_message(format, *args)
 
+        if not hasattr(self, 'ctx'):
+            msg = 'Error'
+        else:
+            msg = 'Error while ' + self.ctx['action']
 
+        if format:
+            msg += ': ' + format
+
+        ex, value, trace = sys.exc_info()
+
+        if ex != None:
+            msg += ": " + str(value)
+
+        self.log_message(msg, *args)
+    
 def exit_handler(signal, frame):
     sys.exit(0)
 
 if __name__ == '__main__':
-    server = ThreadingHTTPServer(Listen, AppHandler)
+    parser = argparse.ArgumentParser(
+        description="""Simple Nginx LDAP authentication helper.""")
+    # Group for listen options:
+    group = parser.add_argument_group("Listen options")
+    group.add_argument('--host',  metavar="hostname",
+        default="localhost", help="host to bind (Default: localhost)")
+    group.add_argument('-p', '--port', metavar="port", type=int,
+        default=9000, help="port to bind (Default: 9000)")
+    # ldap options:
+    group = parser.add_argument_group(title="LDAP options")
+    group.add_argument('-u', '--url', metavar="URL",
+        default="ldap://localhost:389",
+        help=("LDAP URI to query (Default: ldap://localhost:389)"))
+    group.add_argument('-s', '--starttls', action='store_true', default="false",
+        help=("Establish a STARTTLS protected session (Default: false)"))
+    group.add_argument('-b', metavar="baseDn", dest="basedn", default='',
+        help="LDAP base dn (Default: unset)")
+    group.add_argument('-D', metavar="bindDn", dest="binddn", default='',
+        help="LDAP bind DN (Default: anonymous)")
+    group.add_argument('-w', metavar="passwd", dest="bindpw", default='',
+        help="LDAP password for the bind DN (Default: unset)")
+    group.add_argument('-f', '--filter', metavar='filter',
+        default='(cn=%(username)s)',
+        help="LDAP filter (Default: cn=%%(username)s)")
+    # http options:
+    group = parser.add_argument_group(title="HTTP options")
+    group.add_argument('-P', '--basepath', metavar="path",
+        default="", help="HTTP base path for all requests (Default: unset)")
+    group.add_argument('--loginpath', metavar="path",
+        default="/login", help="HTTP path for login app (Default: /login)")
+    group.add_argument('--logoutpath', metavar="path",
+        default="/logout", help="HTTP path for logout app (Default: /logout)")
+    group.add_argument('-c', '--cookiename', metavar="name",
+        default="nginxauth", help="HTTP cookie name to set in (Default: nginxauth)")
+    group.add_argument('-C', '--cookiedomain', metavar="domain",
+        default="", help="HTTP cookie name to set in (Default: unset)")
+    group.add_argument('-H', '--headername', metavar="name",
+        default="", help="HTTP header name to return username (Default: unset)")
+    group.add_argument('-M', '--mfa', metavar="method",
+        default="", help="MFA header name to return mfa method (Default: unset)")
+    # App options:
+    group = parser.add_argument_group(title="App options")
+    group.add_argument('--logo', metavar="url",
+        default="", help="App Logo Url to be displayed (Default: unset)")
+    group.add_argument('--logoutredirect', metavar="url",
+        default="", help="Url to be redirected after Logout (Default: unset)")
+    # Duo options:
+    group = parser.add_argument_group(title="Duo options")
+    group.add_argument('--duoikey', metavar="ikey",
+        default="", help="ikey used for Duo authentication (Default: unset)")
+    group.add_argument('--duoskey', metavar="skey",
+        default="", help="skey used for Duo authentication (Default: unset)")
+    group.add_argument('--duoakey', metavar="akey",
+        default="", help="akey used for Duo authentication (Default: unset)")
+    group.add_argument('--duohost', metavar="host",
+        default="", help="host used for Duo authentication (Default: unset)")
+
+    args = parser.parse_args()
+    global Listen
+    Listen = (args.host, args.port)
+    auth_params = {
+             'url': ('X-Ldap-URL', args.url),
+             'starttls': ('X-Ldap-Starttls', args.starttls),
+             'basedn': ('X-Ldap-BaseDN', args.basedn),
+             'template': ('X-Ldap-Template', args.filter),
+             'binddn': ('X-Ldap-BindDN', args.binddn),
+             'bindpasswd': ('X-Ldap-BindPass', args.bindpw),
+             'basepath': ('X-Path', args.basepath),
+             'loginpath': ('X-Path-Login', args.loginpath),
+             'logoutpath': ('X-Path-Logout', args.logoutpath),
+             'cookiename': ('X-Cookie-Name', args.cookiename),
+             'cookiedomain': ('X-Cookie-Domain', args.cookiedomain),
+             'headername': ('X-Header-Name', args.headername),
+             'mfa': ('X-MFA', args.mfa),
+             'logourl': ('X-Url-Logo', args.logo),
+             'redirecturl': ('X-Url-Redirect', args.logoutredirect),
+             'duoikey': ('X-Duo-ikey', args.duoikey),
+             'duoskey': ('X-Duo-skey', args.duoskey),
+             'duoakey': ('X-Duo-akey', args.duoakey),
+             'duohost': ('X-Duo-host', args.duohost),
+    }
+    AppAuthHandler.set_params(auth_params)
+    server = ThreadingHTTPServer(Listen, AppAuthHandler)
     signal.signal(signal.SIGINT, exit_handler)
     signal.signal(signal.SIGTERM, exit_handler)
+
     sys.stdout.write("[auth-app] Start listening on %s:%d...\n" % Listen)
     sys.stdout.flush()
     server.serve_forever()

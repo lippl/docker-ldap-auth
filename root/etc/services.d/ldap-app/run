@@ -1,3 +1,9 @@
 #!/usr/bin/with-contenv bash
+
+APP_ARGS="$URL $STARTTLS $BASEDN $BINDDN $BINDPW $FILTER"
+APP_ARGS="$APP_ARGS $BASEPATH $LOGINPATH $LOGOUTPATH $COOKIENAME $COOKIEDOMAIN $HEADERNAME $MFA"
+APP_ARGS="$APP_ARGS $LOGO $LOGOUTREDIRECT"
+APP_ARGS="$APP_ARGS $DUOIKEY $DUOSKEY $DUOAKEY $DUOHOST"
+
 exec \
-	s6-setuidgid abc python3 /app/ldap-backend-app.py --host 0.0.0.0 --port 9000
+	s6-setuidgid abc python3 /app/ldap-backend-app.py --host 0.0.0.0 --port 9000 $APP_ARGS
